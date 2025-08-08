@@ -25,7 +25,7 @@ const getFirebaseConfig = () => {
 
 const firebaseConfig = getFirebaseConfig();
 const __app_id = 'default-app-id'; 
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id'; [cite: 8]
+
 const ADMIN_UID = "mbCAypsn8AQ2lmISGRMpD6DzhTZ2";
 
 // --- Constants ---
