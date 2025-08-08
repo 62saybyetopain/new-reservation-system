@@ -12,20 +12,17 @@ import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, signI
 import { getFirestore, collection, doc, onSnapshot, addDoc, setDoc, updateDoc, deleteDoc, getDoc, writeBatch, runTransaction, getDocs } from "firebase/firestore";
 
 // --- Firebase & App Config ---
-// 安全性優化：從 Netlify 注入的 window 物件讀取 Firebase 設定
 const getFirebaseConfig = () => {
-    // 優先從 Netlify 注入的環境變數讀取
     if (window.injectedFirebaseConfig && window.injectedFirebaseConfig.apiKey) {
         return window.injectedFirebaseConfig;
     }
-    // 如果沒有注入的變數（例如本地開發），回傳 null 或一個標記
     console.warn("Using fallback Firebase config. Ensure environment variables are set in Netlify.");
     return null; 
 };
 
 const firebaseConfig = getFirebaseConfig();
-const __app_id = 'default-app-id'; 
-
+// [修正 1] 將 appId 移至檔案頂層作用域，讓所有函式都能存取
+const appId = 'default-app-id';
 const ADMIN_UID = "mbCAypsn8AQ2lmISGRMpD6DzhTZ2";
 
 // --- Constants ---
@@ -1256,7 +1253,6 @@ const BookingModal = ({ isOpen, onClose, selectedDateTime, selectedPlan, booking
     );
 };
 
-// [修正 2] 調整 AdminAvailabilityModal 元件結構以符合 Hooks 的規則
 const AdminAvailabilityModal = ({ isOpen, onClose, selectedDate, currentAvailability, onSave, formSystem }) => {
     const [type, setType] = useState('open');
     const [slots, setSlots] = useState([{ start: '09:00', end: '19:00' }]);
