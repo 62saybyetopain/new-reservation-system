@@ -24,6 +24,7 @@ const getFirebaseConfig = () => {
 };
 
 const firebaseConfig = getFirebaseConfig();
+const __app_id = 'default-app-id';
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 const ADMIN_UID = "mbCAypsn8AQ2lmISGRMpD6DzhTZ2";
 
@@ -1269,7 +1270,7 @@ const AdminAvailabilityModal = ({ isOpen, onClose, selectedDate, currentAvailabi
     const addSlot = () => setSlots([...slots, { start: '14:00', end: '18:00' }]);
     const removeSlot = (index) => setSlots(slots.filter((_, i) => i !== index));
     const handleSave = () => onSave(selectedDate, type === 'open' ? { type, slots } : { type });
-    if (!isOpen || !selectedDate) return null;
+
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={`設定 ${timeUtils.formatDate(selectedDate)} 時段`} maxWidth="md">
             <div className="p-6 space-y-4">
