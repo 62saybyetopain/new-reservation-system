@@ -24,8 +24,8 @@ const getFirebaseConfig = () => {
 };
 
 const firebaseConfig = getFirebaseConfig();
-const __app_id = 'default-app-id';
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const __app_id = 'default-app-id'; 
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id'; [cite: 8]
 const ADMIN_UID = "mbCAypsn8AQ2lmISGRMpD6DzhTZ2";
 
 // --- Constants ---
@@ -1256,9 +1256,11 @@ const BookingModal = ({ isOpen, onClose, selectedDateTime, selectedPlan, booking
     );
 };
 
+// [修正 2] 調整 AdminAvailabilityModal 元件結構以符合 Hooks 的規則
 const AdminAvailabilityModal = ({ isOpen, onClose, selectedDate, currentAvailability, onSave, formSystem }) => {
     const [type, setType] = useState('open');
     const [slots, setSlots] = useState([{ start: '09:00', end: '19:00' }]);
+
     useEffect(() => {
         if (isOpen && selectedDate) {
             const effective = getEffectiveAvailability(selectedDate, { [timeUtils.formatDate(selectedDate)]: currentAvailability }, formSystem?.defaultSchedule);
@@ -1266,13 +1268,18 @@ const AdminAvailabilityModal = ({ isOpen, onClose, selectedDate, currentAvailabi
             setSlots(effective.slots?.length > 0 ? effective.slots : [{ start: '09:00', end: '19:00' }]);
         }
     }, [currentAvailability, selectedDate, isOpen, formSystem]);
+
     const handleSlotChange = (index, field, value) => setSlots(slots.map((s, i) => i === index ? { ...s, [field]: value } : s));
     const addSlot = () => setSlots([...slots, { start: '14:00', end: '18:00' }]);
     const removeSlot = (index) => setSlots(slots.filter((_, i) => i !== index));
     const handleSave = () => onSave(selectedDate, type === 'open' ? { type, slots } : { type });
 
+    if (!isOpen) {
+        return null;
+    }
+    
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={`設定 ${timeUtils.formatDate(selectedDate)} 時段`} maxWidth="md">
+        <Modal isOpen={isOpen} onClose={onClose} title={`設定 ${selectedDate ? timeUtils.formatDate(selectedDate) : ''} 時段`} maxWidth="md">
             <div className="p-6 space-y-4">
                 <div className="flex space-x-4">
                     <button onClick={() => setType('open')} className={`flex-1 py-2 rounded-md ${type === 'open' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>開放</button>
@@ -1296,6 +1303,7 @@ const AdminAvailabilityModal = ({ isOpen, onClose, selectedDate, currentAvailabi
         </Modal>
     );
 };
+
 const BookingListModal = ({ isOpen, onClose, date, bookings, cancelBooking, onMarkAsRead, onMarkAsCompleted, onRescheduleBooking }) => {
     const [isQuestionnaireModalOpen, setIsQuestionnaireModalOpen] = useState(false);
     const [selectedBooking, setSelectedBooking] = useState(null);
