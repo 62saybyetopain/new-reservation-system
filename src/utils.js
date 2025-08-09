@@ -1,6 +1,7 @@
 import { format, addDays, getDay, parseISO, isBefore, isEqual, addMinutes, set, getHours, isAfter, endOfDay } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
-import { collection, addDoc, updateDoc, setDoc, deleteDoc, writeBatch } from "firebase/firestore";
+// --- FIX: Added missing firebase/firestore imports ---
+import { collection, doc, addDoc, updateDoc, setDoc, deleteDoc, writeBatch } from "firebase/firestore";
 import { Phone, Mail, MessageCircle, Instagram, Twitter, Facebook } from 'lucide-react';
 
 // --- Firebase & App Config ---
@@ -93,6 +94,7 @@ export const getEffectiveAvailability = (day, adminAvailability, defaultSchedule
 
 export const hasBookingConflict = (startTime, endTime, dayBookings) => {
     return dayBookings.some(booking => {
+        if (!booking.startTime) return false;
         const bookingStartTime = timeUtils.parseDate(booking.startTime);
         const bookingEndTime = addMinutes(bookingStartTime, booking.duration + booking.restTime);
         return isBefore(startTime, bookingEndTime) && isAfter(endTime, bookingStartTime);
@@ -101,7 +103,7 @@ export const hasBookingConflict = (startTime, endTime, dayBookings) => {
 
 export const checkEveningRules = (slotTime, plan, dayBookings) => {
     if (getHours(slotTime) < 19) return true;
-    const eveningBookings = dayBookings.filter(b => getHours(timeUtils.parseDate(b.startTime)) >= 19);
+    const eveningBookings = dayBookings.filter(b => b.startTime && getHours(timeUtils.parseDate(b.startTime)) >= 19);
     if (plan.duration >= 60 && eveningBookings.length > 0) return false;
     if (eveningBookings.some(b => b.duration >= 60)) return false;
     return true;
@@ -147,8 +149,8 @@ export const generateAvailableTimeSlotsForHour = (hourStart, plan, bookings, adm
 
 export const getHourSummary = (day, hour, plan, bookings, adminAvailability, formSystem) => {
     const slotDateTimeStart = set(day, { hours: hour, minutes: 0, seconds: 0, milliseconds: 0 });
-    if (isBefore(slotDateTimeStart, timeUtils.getToday()) || isAfter(slotDateTimeStart, endOfDay(addDays(timeUtils.getToday(), BOOKING_WINDOW_DAYS - 1)))) {
-        return { status: 'unavailable', text: isBefore(slotDateTimeStart, timeUtils.getToday()) ? '已過期' : '未開放' };
+    if (isBefore(slotDateTimeStart, new Date()) || isAfter(slotDateTimeStart, endOfDay(addDays(timeUtils.getToday(), BOOKING_WINDOW_DAYS - 1)))) {
+        return { status: 'unavailable', text: isBefore(slotDateTimeStart, new Date()) ? '已過期' : '未開放' };
     }
     const dayAvailability = getEffectiveAvailability(day, adminAvailability, formSystem?.defaultSchedule);
     if (dayAvailability.type === 'rest') return { status: 'rest', text: '休息' };
@@ -173,7 +175,7 @@ export const createFirebaseUtils = (db, showNotification) => ({
         if (process.env.NODE_ENV !== 'production') {
             console.error(message, error);
         }
-        showNotification({ type: 'error', message: `${message}，請稍後再試。` });
+        showNotification(`${message}，請稍後再試。`, 'error');
     },
     async addDoc(collectionPath, data) {
         try {
@@ -265,6 +267,7 @@ export const csvUtils = {
 let audioCtx;
 export const playClickSound = () => {
     try {
+        if (typeof window === 'undefined') return;
         if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const oscillator = audioCtx.createOscillator();
         const gainNode = audioCtx.createGain();
