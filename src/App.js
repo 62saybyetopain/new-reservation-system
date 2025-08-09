@@ -14,11 +14,11 @@ import { getFirestore, collection, doc, onSnapshot, addDoc, setDoc, updateDoc, d
 // --- Firebase & App Config ---
 const getFirebaseConfig = () => {
     // 檢查是否有注入的 Firebase 配置
-    if (window.injectedFirebaseConfig && window.injectedFirebaseConfig.apiKey) {
+    if (typeof window !== 'undefined' && window.injectedFirebaseConfig && window.injectedFirebaseConfig.apiKey) {
         return window.injectedFirebaseConfig;
     }
     
-    // 從環境變數讀取 (適用於 Netlify) - 已修正 process is not defined 的問題
+    // 從環境變數讀取 (適用於 Netlify)
     if (typeof process !== 'undefined' && process.env && process.env.REACT_APP_FIREBASE_API_KEY) {
         return {
             apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
@@ -30,13 +30,12 @@ const getFirebaseConfig = () => {
         };
     }
     
-    console.warn("Using fallback Firebase config. Ensure environment variables are set in Netlify.");
+    // Fallback for environments where process is not defined, returning null ensures controlled failure.
     return null; 
 };
 
 
 const firebaseConfig = getFirebaseConfig();
-// 將 appId 移至檔案頂層作用域，讓所有函式都能存取
 const appId = 'default-app-id';
 const ADMIN_UID = "mbCAypsn8AQ2lmISGRMpD6DzhTZ2";
 
@@ -185,7 +184,10 @@ const getHourSummary = (day, hour, plan, bookings, adminAvailability, formSystem
 const createFirebaseUtils = (db, setNotification) => ({
     getBasePath: (appId) => `artifacts/${appId}/public/data`,
     handleError: (message, error) => {
-        console.error(message, error);
+        // **FIXED**: Only log errors to the console in development environments.
+        if (process.env.NODE_ENV !== 'production') {
+            console.error(message, error);
+        }
         setNotification({ type: 'error', message: `${message}，請稍後再試。` });
     },
     async addDoc(collectionPath, data) {
@@ -291,7 +293,10 @@ const playClickSound = () => {
         oscillator.start(audioCtx.currentTime);
         oscillator.stop(audioCtx.currentTime + 0.1);
     } catch (e) {
-        console.error("Could not play sound:", e);
+        // This error is minor, so we only log it in development.
+        if (process.env.NODE_ENV !== 'production') {
+            console.error("Could not play sound:", e);
+        }
     }
 };
 
@@ -414,16 +419,19 @@ export default function App() {
     
     // Memoized values
     const isAdmin = useMemo(() => user?.uid === ADMIN_UID, [user]);
+    
+    // **FIXED**: The `setNotification` function from `useState` has a stable identity and does not need to be in the dependency array.
+    // This prevents unnecessary re-computation of `fbUtils` and satisfies the `exhaustive-deps` linting rule.
     const fbUtils = useMemo(() => db ? createFirebaseUtils(db, setNotification) : null, [db]);
+    
     const unreadCount = useMemo(() => bookings.filter(b => !b.isRead).length, [bookings]);
     const pendingCount = useMemo(() => bookings.filter(b => b.completionStatus === 'pending' || !b.completionStatus).length, [bookings]);
 
-    // **FIXED**: Firebase initialization useEffect - ensured it's at the top level
+    // Firebase initialization useEffect
     useEffect(() => {
-        let unsubscribe = null;
+        let unsubscribeAuth = null;
     
         const initializeFirebase = async () => {
-            // 如果沒有有效的 firebaseConfig，則進入離線/模擬模式
             if (!firebaseConfig) {
                 console.error("Firebase config not found. Running in offline/mock mode.");
                 setFormSystem(initialFormSystem); 
@@ -442,7 +450,7 @@ export default function App() {
                 setDb(firestoreDb);
                 setAuth(firebaseAuth);
                         
-                unsubscribe = onAuthStateChanged(firebaseAuth, (currentUser) => {
+                unsubscribeAuth = onAuthStateChanged(firebaseAuth, (currentUser) => {
                     setUser(currentUser);
                     if (!currentUser) {
                         signInAnonymously(firebaseAuth).catch(error => 
@@ -462,8 +470,8 @@ export default function App() {
         initializeFirebase();
     
         return () => {
-            if (unsubscribe) {
-                unsubscribe();
+            if (unsubscribeAuth) {
+                unsubscribeAuth();
             }
         };
     }, []); // Empty dependency array ensures this runs only once on mount
@@ -478,56 +486,72 @@ export default function App() {
         return () => { if (document.body.contains(script)) document.body.removeChild(script); }
     }, []);
 
-    // **FIXED**: Data fetching useEffect - conditional logic moved inside
+    // Data fetching useEffect.
     useEffect(() => {
-        // 將條件檢查移到 useEffect 內部，而不是作為調用條件
-        if (!db || !fbUtils) {
-            return; // 提前返回，但 useEffect 仍會被調用
+        let unsubForm = () => {};
+        let unsubBookings = () => {};
+        let unsubAvailability = () => {};
+
+        if (db && fbUtils) {
+            setLoading(true);
+            const publicDataPath = fbUtils.getBasePath(appId);
+
+            unsubForm = onSnapshot(doc(db, `${publicDataPath}/systems`, 'formSystem'), (docSnap) => {
+                if (docSnap.exists()) {
+                    const fetchedData = docSnap.data();
+                    // Deep merge to prevent overwriting nested objects with incomplete data
+                    setFormSystem(prev => ({
+                        ...initialFormSystem,
+                        ...fetchedData,
+                        businessInfo: { ...initialFormSystem.businessInfo, ...(fetchedData.businessInfo || {}) },
+                        defaultSchedule: fetchedData.defaultSchedule || initialFormSystem.defaultSchedule,
+                        questions: fetchedData.questions || initialFormSystem.questions,
+                        recommendations: fetchedData.recommendations || initialFormSystem.recommendations,
+                    }));
+                } else {
+                    fbUtils.setDoc(`${publicDataPath}/systems/formSystem`, initialFormSystem)
+                           .then(() => setFormSystem(initialFormSystem));
+                }
+            }, (error) => fbUtils.handleError("讀取系統設定失敗", error));
+
+            unsubBookings = onSnapshot(collection(db, `${publicDataPath}/bookings`), (snapshot) => {
+                setBookings(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+            }, (error) => fbUtils.handleError("讀取預約資料失敗", error));
+
+            unsubAvailability = onSnapshot(collection(db, `${publicDataPath}/availability`), (snapshot) => {
+                const availabilityData = {};
+                snapshot.docs.forEach(d => {
+                    availabilityData[d.id] = d.data();
+                });
+                setAdminAvailability(availabilityData);
+            }, (error) => fbUtils.handleError("讀取可預約時段失敗", error));
+
+            getDoc(doc(db, `${publicDataPath}/systems`, 'formSystem')).finally(() => setLoading(false));
+        } else {
+            setLoading(false);
         }
-    
-        setLoading(true);
-        const publicDataPath = fbUtils.getBasePath(appId);
-    
-        const unsubForm = onSnapshot(doc(db, `${publicDataPath}/systems`, 'formSystem'), (docSnap) => {
-            if (docSnap.exists()) {
-                setFormSystem(prev => ({ ...initialFormSystem, ...docSnap.data() }));
-            } else {
-                fbUtils.setDoc(`${publicDataPath}/systems/formSystem`, initialFormSystem)
-                       .then(() => setFormSystem(initialFormSystem));
-            }
-        }, (error) => fbUtils.handleError("讀取系統設定失敗", error));
 
-        const unsubBookings = onSnapshot(collection(db, `${publicDataPath}/bookings`), (snapshot) => {
-            setBookings(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        }, (error) => fbUtils.handleError("讀取預約資料失败", error));
-
-        const unsubAvailability = onSnapshot(collection(db, `${publicDataPath}/availability`), (snapshot) => {
-            const availabilityData = {};
-            snapshot.docs.forEach(doc => {  
-                availabilityData[doc.id] = doc.data();  
-            });
-            setAdminAvailability(availabilityData);
-        }, (error) => fbUtils.handleError("讀取可預約時段失敗", error));
-
-        getDoc(doc(db, `${publicDataPath}/systems`, 'formSystem')).finally(() => setLoading(false));
-    
-        return () => {  
-            unsubForm();  
-            unsubBookings();  
-            unsubAvailability();  
+        return () => {
+            unsubForm();
+            unsubBookings();
+            unsubAvailability();
         };
-    }, [db, fbUtils]); // 依賴項保持不變
+    }, [db, fbUtils]);
+
 
     // Audio control useEffect
     useEffect(() => {
         const audio = audioRef.current;
-        // The conditional check is correctly placed inside the hook
         if (!audio || !hasInteracted) return;
         const visitorViews = ['form', 'plans', 'calendar'];
         if (isMuted || !visitorViews.includes(currentView) || isAdmin) {
             audio.pause();
         } else {
-            audio.play().catch(e => console.error("Audio play failed:", e));
+            audio.play().catch(e => {
+                if (process.env.NODE_ENV !== 'production') {
+                    console.error("Audio play failed:", e);
+                }
+            });
         }
     }, [isMuted, currentView, isAdmin, hasInteracted]);
 
@@ -537,7 +561,11 @@ export default function App() {
         const audio = audioRef.current;
         if (audio && !isMuted) {
             audio.volume = 0;
-            audio.play().catch(e => console.error("Audio play failed:", e));
+            audio.play().catch(e => {
+                if (process.env.NODE_ENV !== 'production') {
+                    console.error("Audio play failed:", e)
+                }
+            });
             const fadeAudio = setInterval(() => {
                 const newVolume = audio.volume + 0.05;
                 if (newVolume < 1.0) audio.volume = newVolume;
@@ -663,7 +691,7 @@ export default function App() {
         if (!fbUtils || bookingIds.length === 0) return;
         const operations = bookingIds.map(id => ({ type: 'update', path: `${fbUtils.getBasePath(appId)}/bookings/${id}`, data: { isRead: true } }));
         await fbUtils.writeBatch(operations);
-    }, [fbUtils, appId]);
+    }, [fbUtils]);
     
     const handleExportBookings = () => {
         try {
@@ -684,10 +712,10 @@ export default function App() {
             title: '確認清除所有預約資料',
             message: '您確定要清除所有預約資料嗎？此操作將永久刪除所有預約紀錄，無法復原。',
             onConfirm: async () => {
+                const batch = writeBatch(db);
+                const bookingsRef = collection(db, `${fbUtils.getBasePath(appId)}/bookings`);
                 try {
-                    const bookingsRef = collection(db, `${fbUtils.getBasePath(appId)}/bookings`);
                     const snapshot = await getDocs(bookingsRef);
-                    const batch = writeBatch(db);
                     snapshot.docs.forEach((doc) => batch.delete(doc.ref));
                     await batch.commit();
                     setNotification({ type: 'success', message: '所有預約資料已清除完成！' });
@@ -1203,7 +1231,16 @@ const BookingSystem = ({ formSystem, selectedPlan, bookings, adminAvailability, 
                     <span className="font-semibold text-gray-700">{format(displayStartDate, 'yyyy / MM / dd')} ~ {format(addDays(displayStartDate, 6), 'MM / dd')}</span>
                     <Button variant="outline" onClick={goToNextWeek} disabled={weekOffset >= 2}>下一週<ChevronRight size={16} className="ml-1" /></Button>
                 </div>
-                <WeeklyView startDate={displayStartDate} bookings={bookings} adminAvailability={adminAvailability} onSlotClick={handleSlotClick} isAdmin={isAdmin} onAdminDayClick={onAdminDayClick} onAdminViewBookings={onAdminViewBookings} selectedPlan={selectedPlan || (rescheduleBooking ? { duration: rescheduleBooking.duration, restTime: rescheduleBooking.restTime } : null)} formSystem={formSystem} />
+                <WeeklyView 
+                    startDate={displayStartDate} 
+                    bookings={bookings} 
+                    adminAvailability={adminAvailability} 
+                    onSlotClick={handleSlotClick} 
+                    isAdmin={isAdmin} 
+                    onAdminDayClick={handleAdminDayClick} 
+                    onAdminViewBookings={handleAdminViewBookings} 
+                    selectedPlan={selectedPlan || (rescheduleBooking ? { duration: rescheduleBooking.duration, restTime: rescheduleBooking.restTime } : null)} 
+                    formSystem={formSystem} />
             </div>
             <BookingModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} selectedDateTime={selectedDateTime} selectedPlan={selectedPlan} bookings={bookings} adminAvailability={adminAvailability} onSubmitBooking={(data) => { if (rescheduleBooking) onRescheduleSubmit(data, rescheduleBooking.id); else onAddNewBooking(data); setIsModalOpen(false); }} formSystem={formSystem} rescheduleBooking={rescheduleBooking} isAdmin={isAdmin} />
             <BookingListModal isOpen={isAdmin && isBookingListModalOpen} onClose={() => setIsBookingListModalOpen(false)} date={selectedDateTime} bookings={bookings} cancelBooking={onCancelBooking} onMarkAsRead={onMarkAsRead} onMarkAsCompleted={onMarkAsCompleted} onRescheduleBooking={handleRescheduleAndCloseModal} />
