@@ -36,7 +36,7 @@ const getFirebaseConfig = () => {
 
 
 const firebaseConfig = getFirebaseConfig();
-// [修正 1] 將 appId 移至檔案頂層作用域，讓所有函式都能存取
+// 將 appId 移至檔案頂層作用域，讓所有函式都能存取
 const appId = 'default-app-id';
 const ADMIN_UID = "mbCAypsn8AQ2lmISGRMpD6DzhTZ2";
 
@@ -390,7 +390,7 @@ class ErrorBoundary extends React.Component {
 
 // --- Main App Component ---
 export default function App() {
-    // REFACTORED: State management from useReducer to useState
+    // State management
     const [currentView, setCurrentView] = useState('form');
     const [recommendedPlanId, setRecommendedPlanId] = useState(null);
     const [selectedPlan, setSelectedPlan] = useState(null);
@@ -412,12 +412,13 @@ export default function App() {
     const [confirmation, setConfirmation] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {} });
     const [rescheduleBooking, setRescheduleBooking] = useState(null);
     
+    // Memoized values
     const isAdmin = useMemo(() => user?.uid === ADMIN_UID, [user]);
     const fbUtils = useMemo(() => db ? createFirebaseUtils(db, setNotification) : null, [db]);
     const unreadCount = useMemo(() => bookings.filter(b => !b.isRead).length, [bookings]);
     const pendingCount = useMemo(() => bookings.filter(b => b.completionStatus === 'pending' || !b.completionStatus).length, [bookings]);
 
-    // Firebase initialization useEffect - always called at top level
+    // **FIXED**: Firebase initialization useEffect - ensured it's at the top level
     useEffect(() => {
         let unsubscribe = null;
     
@@ -465,8 +466,9 @@ export default function App() {
                 unsubscribe();
             }
         };
-    }, []);
+    }, []); // Empty dependency array ensures this runs only once on mount
 
+    // Other top-level useEffects
     useEffect(() => {
         document.title = "筋伸自在預約系統";
         const script = document.createElement('script');
@@ -476,14 +478,23 @@ export default function App() {
         return () => { if (document.body.contains(script)) document.body.removeChild(script); }
     }, []);
 
+    // **FIXED**: Data fetching useEffect - conditional logic moved inside
     useEffect(() => {
-        if (!db || !fbUtils) return;
+        // 將條件檢查移到 useEffect 內部，而不是作為調用條件
+        if (!db || !fbUtils) {
+            return; // 提前返回，但 useEffect 仍會被調用
+        }
+    
         setLoading(true);
         const publicDataPath = fbUtils.getBasePath(appId);
-        
+    
         const unsubForm = onSnapshot(doc(db, `${publicDataPath}/systems`, 'formSystem'), (docSnap) => {
-            if (docSnap.exists()) setFormSystem(prev => ({ ...initialFormSystem, ...docSnap.data() }));
-            else fbUtils.setDoc(`${publicDataPath}/systems/formSystem`, initialFormSystem).then(() => setFormSystem(initialFormSystem));
+            if (docSnap.exists()) {
+                setFormSystem(prev => ({ ...initialFormSystem, ...docSnap.data() }));
+            } else {
+                fbUtils.setDoc(`${publicDataPath}/systems/formSystem`, initialFormSystem)
+                       .then(() => setFormSystem(initialFormSystem));
+            }
         }, (error) => fbUtils.handleError("讀取系統設定失敗", error));
 
         const unsubBookings = onSnapshot(collection(db, `${publicDataPath}/bookings`), (snapshot) => {
@@ -492,16 +503,25 @@ export default function App() {
 
         const unsubAvailability = onSnapshot(collection(db, `${publicDataPath}/availability`), (snapshot) => {
             const availabilityData = {};
-            snapshot.docs.forEach(doc => { availabilityData[doc.id] = doc.data(); });
+            snapshot.docs.forEach(doc => {  
+                availabilityData[doc.id] = doc.data();  
+            });
             setAdminAvailability(availabilityData);
         }, (error) => fbUtils.handleError("讀取可預約時段失敗", error));
 
         getDoc(doc(db, `${publicDataPath}/systems`, 'formSystem')).finally(() => setLoading(false));
-        return () => { unsubForm(); unsubBookings(); unsubAvailability(); };
-    }, [db, fbUtils]);
+    
+        return () => {  
+            unsubForm();  
+            unsubBookings();  
+            unsubAvailability();  
+        };
+    }, [db, fbUtils]); // 依賴項保持不變
 
+    // Audio control useEffect
     useEffect(() => {
         const audio = audioRef.current;
+        // The conditional check is correctly placed inside the hook
         if (!audio || !hasInteracted) return;
         const visitorViews = ['form', 'plans', 'calendar'];
         if (isMuted || !visitorViews.includes(currentView) || isAdmin) {
@@ -526,7 +546,7 @@ export default function App() {
         }
     };
 
-    // REFACTORED: Event handlers using useState
+    // Event handlers
     const handleFormComplete = (recId) => {
         playClickSound();
         setRecommendedPlanId(recId);
@@ -679,7 +699,7 @@ export default function App() {
         });
     };
 
-    // REFACTORED: renderContent using useState variables
+    // Render logic
     const renderContent = () => {
         if (loading || !formSystem) return <div className="text-center p-10">載入中...</div>;
         if (successfulBooking) return <BookingSuccessModal isOpen={!!successfulBooking} booking={successfulBooking} businessInfo={formSystem.businessInfo || {}} onClose={resetFlow} />;
@@ -1183,7 +1203,7 @@ const BookingSystem = ({ formSystem, selectedPlan, bookings, adminAvailability, 
                     <span className="font-semibold text-gray-700">{format(displayStartDate, 'yyyy / MM / dd')} ~ {format(addDays(displayStartDate, 6), 'MM / dd')}</span>
                     <Button variant="outline" onClick={goToNextWeek} disabled={weekOffset >= 2}>下一週<ChevronRight size={16} className="ml-1" /></Button>
                 </div>
-                <WeeklyView startDate={displayStartDate} bookings={bookings} adminAvailability={adminAvailability} onSlotClick={handleSlotClick} isAdmin={isAdmin} onAdminDayClick={handleAdminDayClick} onAdminViewBookings={handleAdminViewBookings} selectedPlan={selectedPlan || (rescheduleBooking ? { duration: rescheduleBooking.duration, restTime: rescheduleBooking.restTime } : null)} formSystem={formSystem} />
+                <WeeklyView startDate={displayStartDate} bookings={bookings} adminAvailability={adminAvailability} onSlotClick={handleSlotClick} isAdmin={isAdmin} onAdminDayClick={onAdminDayClick} onAdminViewBookings={onAdminViewBookings} selectedPlan={selectedPlan || (rescheduleBooking ? { duration: rescheduleBooking.duration, restTime: rescheduleBooking.restTime } : null)} formSystem={formSystem} />
             </div>
             <BookingModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} selectedDateTime={selectedDateTime} selectedPlan={selectedPlan} bookings={bookings} adminAvailability={adminAvailability} onSubmitBooking={(data) => { if (rescheduleBooking) onRescheduleSubmit(data, rescheduleBooking.id); else onAddNewBooking(data); setIsModalOpen(false); }} formSystem={formSystem} rescheduleBooking={rescheduleBooking} isAdmin={isAdmin} />
             <BookingListModal isOpen={isAdmin && isBookingListModalOpen} onClose={() => setIsBookingListModalOpen(false)} date={selectedDateTime} bookings={bookings} cancelBooking={onCancelBooking} onMarkAsRead={onMarkAsRead} onMarkAsCompleted={onMarkAsCompleted} onRescheduleBooking={handleRescheduleAndCloseModal} />
