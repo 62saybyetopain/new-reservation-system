@@ -417,7 +417,7 @@ export default function App() {
     const unreadCount = useMemo(() => bookings.filter(b => !b.isRead).length, [bookings]);
     const pendingCount = useMemo(() => bookings.filter(b => b.completionStatus === 'pending' || !b.completionStatus).length, [bookings]);
 
-    // MODIFIED: This useEffect was refactored to fix a violation of the Rules of Hooks.
+    // Firebase initialization useEffect - always called at top level
     useEffect(() => {
         let unsubscribe = null;
     
