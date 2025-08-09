@@ -1484,3 +1484,4 @@ const BookingSuccessModal = ({ isOpen, booking, businessInfo, onClose }) => {
             </div>
         </Modal>
     );
+};
