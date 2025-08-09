@@ -18,8 +18,8 @@ const getFirebaseConfig = () => {
         return window.injectedFirebaseConfig;
     }
     
-    // 從環境變數讀取 (適用於 Netlify)
-    if (process.env.REACT_APP_FIREBASE_API_KEY) {
+    // 從環境變數讀取 (適用於 Netlify) - 已修正 process is not defined 的問題
+    if (typeof process !== 'undefined' && process.env && process.env.REACT_APP_FIREBASE_API_KEY) {
         return {
             apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
             authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
@@ -402,7 +402,6 @@ export default function App() {
     const [auth, setAuth] = useState(null);
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
-    const isAdmin = useMemo(() => user?.uid === ADMIN_UID, [user]);
     const [formSystem, setFormSystem] = useState(null);
     const [bookings, setBookings] = useState([]);
     const [adminAvailability, setAdminAvailability] = useState({});
@@ -413,19 +412,10 @@ export default function App() {
     const [confirmation, setConfirmation] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {} });
     const [rescheduleBooking, setRescheduleBooking] = useState(null);
     
+    const isAdmin = useMemo(() => user?.uid === ADMIN_UID, [user]);
     const fbUtils = useMemo(() => db ? createFirebaseUtils(db, setNotification) : null, [db]);
-
     const unreadCount = useMemo(() => bookings.filter(b => !b.isRead).length, [bookings]);
     const pendingCount = useMemo(() => bookings.filter(b => b.completionStatus === 'pending' || !b.completionStatus).length, [bookings]);
-
-    useEffect(() => {
-        document.title = "筋伸自在預約系統";
-        const script = document.createElement('script');
-        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-        script.async = true;
-        document.body.appendChild(script);
-        return () => { if (document.body.contains(script)) document.body.removeChild(script); }
-    }, []);
 
     // MODIFIED: This useEffect was refactored to fix a violation of the Rules of Hooks.
     useEffect(() => {
@@ -475,6 +465,15 @@ export default function App() {
                 unsubscribe();
             }
         };
+    }, []);
+
+    useEffect(() => {
+        document.title = "筋伸自在預約系統";
+        const script = document.createElement('script');
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+        script.async = true;
+        document.body.appendChild(script);
+        return () => { if (document.body.contains(script)) document.body.removeChild(script); }
     }, []);
 
     useEffect(() => {
