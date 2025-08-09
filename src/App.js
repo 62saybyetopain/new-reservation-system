@@ -13,12 +13,27 @@ import { getFirestore, collection, doc, onSnapshot, addDoc, setDoc, updateDoc, d
 
 // --- Firebase & App Config ---
 const getFirebaseConfig = () => {
+    // 檢查是否有注入的 Firebase 配置
     if (window.injectedFirebaseConfig && window.injectedFirebaseConfig.apiKey) {
         return window.injectedFirebaseConfig;
     }
+    
+    // 從環境變數讀取 (適用於 Netlify)
+    if (process.env.REACT_APP_FIREBASE_API_KEY) {
+        return {
+            apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+            authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+            projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+            storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+            messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+            appId: process.env.REACT_APP_FIREBASE_APP_ID
+        };
+    }
+    
     console.warn("Using fallback Firebase config. Ensure environment variables are set in Netlify.");
     return null; 
 };
+
 
 const firebaseConfig = getFirebaseConfig();
 // [修正 1] 將 appId 移至檔案頂層作用域，讓所有函式都能存取
@@ -348,6 +363,31 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, children }) => {
     );
 };
 
+// --- Error Boundary Component ---
+class ErrorBoundary extends React.Component {
+    constructor(props) {
+        super(props);
+        this.state = { hasError: false };
+    }
+
+    static getDerivedStateFromError(error) {
+        return { hasError: true };
+    }
+
+    componentDidCatch(error, errorInfo) {
+        console.error('Error caught by boundary:', error, errorInfo);
+    }
+
+    render() {
+        if (this.state.hasError) {
+            return <div className="text-center p-10 bg-red-50 text-red-700 rounded-lg"><h1>系統發生錯誤，請重新整理頁面。</h1></div>;
+        }
+
+        return this.props.children;
+    }
+}
+
+
 // --- Main App Component ---
 export default function App() {
     // REFACTORED: State management from useReducer to useState
@@ -390,33 +430,46 @@ export default function App() {
     // MODIFIED: This useEffect was refactored to fix a violation of the Rules of Hooks.
     useEffect(() => {
         let unsubscribe = null;
-        
-        // 如果沒有有效的 firebaseConfig，則進入離線/模擬模式
-        if (!firebaseConfig) {
-            console.error("Firebase config not found. Running in offline/mock mode.");
-            setFormSystem(initialFormSystem); 
-            setBookings(MOCK_INITIAL_BOOKINGS); 
-            setAdminAvailability(MOCK_INITIAL_ADMIN_AVAILABILITY); 
-            setLoading(false);
-            setNotification({ type: 'error', message: '系統設定錯誤，部分功能可能無法使用。' });
-        } else {
+    
+        const initializeFirebase = async () => {
+            // 如果沒有有效的 firebaseConfig，則進入離線/模擬模式
+            if (!firebaseConfig) {
+                console.error("Firebase config not found. Running in offline/mock mode.");
+                setFormSystem(initialFormSystem); 
+                setBookings(MOCK_INITIAL_BOOKINGS); 
+                setAdminAvailability(MOCK_INITIAL_ADMIN_AVAILABILITY); 
+                setLoading(false);
+                setNotification({ type: 'error', message: '系統設定錯誤，部分功能可能無法使用。' });
+                return;
+            }
+    
             try {
                 const app = initializeApp(firebaseConfig);
                 const firestoreDb = getFirestore(app);
                 const firebaseAuth = getAuth(app);
-                setDb(firestoreDb); setAuth(firebaseAuth);
+                        
+                setDb(firestoreDb);
+                setAuth(firebaseAuth);
+                        
                 unsubscribe = onAuthStateChanged(firebaseAuth, (currentUser) => {
                     setUser(currentUser);
                     if (!currentUser) {
-                        signInAnonymously(firebaseAuth).catch(error => console.error("Anonymous sign-in failed:", error));
+                        signInAnonymously(firebaseAuth).catch(error => 
+                            console.error("Anonymous sign-in failed:", error)
+                        );
                     }
                 });
             } catch (error) {
                 console.error("Firebase initialization failed, running in offline mode.", error);
-                setFormSystem(initialFormSystem); setBookings(MOCK_INITIAL_BOOKINGS); setAdminAvailability(MOCK_INITIAL_ADMIN_AVAILABILITY); setLoading(false);
+                setFormSystem(initialFormSystem);
+                setBookings(MOCK_INITIAL_BOOKINGS);
+                setAdminAvailability(MOCK_INITIAL_ADMIN_AVAILABILITY);
+                setLoading(false);
             }
-        }
-        
+        };
+    
+        initializeFirebase();
+    
         return () => {
             if (unsubscribe) {
                 unsubscribe();
@@ -670,7 +723,9 @@ export default function App() {
                         {isAdmin ? <Button variant="danger" size="sm" onClick={handleLogout}><LogOut className="w-5 h-5 mr-2" />登出</Button> : <Button variant="primary" size="sm" onClick={() => setIsLoginModalOpen(true)}><LogIn className="w-5 h-5 mr-2" />管理員登入</Button>}
                     </div>
                 </header>
-                {renderContent()}
+                <ErrorBoundary>
+                    {renderContent()}
+                </ErrorBoundary>
                 <AdminLoginModal isOpen={isLoginModalOpen} onClose={() => setIsLoginModalOpen(false)} onLogin={handleLogin} />
                 <Notification notification={notification} onClose={() => setNotification({ message: '', type: '' })} />
                 <ConfirmationModal isOpen={confirmation.isOpen} onClose={() => setConfirmation(c => ({...c, isOpen: false}))} onConfirm={confirmation.onConfirm} title={confirmation.title}>
@@ -1429,4 +1484,3 @@ const BookingSuccessModal = ({ isOpen, booking, businessInfo, onClose }) => {
             </div>
         </Modal>
     );
-};
