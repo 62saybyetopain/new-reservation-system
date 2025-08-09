@@ -389,6 +389,8 @@ export default function App() {
 
     // MODIFIED: This useEffect was refactored to fix a violation of the Rules of Hooks.
     useEffect(() => {
+        let unsubscribe = null;
+        
         // 如果沒有有效的 firebaseConfig，則進入離線/模擬模式
         if (!firebaseConfig) {
             console.error("Firebase config not found. Running in offline/mock mode.");
@@ -403,18 +405,23 @@ export default function App() {
                 const firestoreDb = getFirestore(app);
                 const firebaseAuth = getAuth(app);
                 setDb(firestoreDb); setAuth(firebaseAuth);
-                const unsubscribe = onAuthStateChanged(firebaseAuth, (currentUser) => {
+                unsubscribe = onAuthStateChanged(firebaseAuth, (currentUser) => {
                     setUser(currentUser);
                     if (!currentUser) {
                         signInAnonymously(firebaseAuth).catch(error => console.error("Anonymous sign-in failed:", error));
                     }
                 });
-                return () => unsubscribe();
             } catch (error) {
                 console.error("Firebase initialization failed, running in offline mode.", error);
                 setFormSystem(initialFormSystem); setBookings(MOCK_INITIAL_BOOKINGS); setAdminAvailability(MOCK_INITIAL_ADMIN_AVAILABILITY); setLoading(false);
             }
         }
+        
+        return () => {
+            if (unsubscribe) {
+                unsubscribe();
+            }
+        };
     }, []);
 
     useEffect(() => {
