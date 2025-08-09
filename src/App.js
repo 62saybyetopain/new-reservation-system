@@ -387,6 +387,7 @@ export default function App() {
         return () => { if (document.body.contains(script)) document.body.removeChild(script); }
     }, []);
 
+    // MODIFIED: This useEffect was refactored to fix a violation of the Rules of Hooks.
     useEffect(() => {
         // 如果沒有有效的 firebaseConfig，則進入離線/模擬模式
         if (!firebaseConfig) {
@@ -396,24 +397,23 @@ export default function App() {
             setAdminAvailability(MOCK_INITIAL_ADMIN_AVAILABILITY); 
             setLoading(false);
             setNotification({ type: 'error', message: '系統設定錯誤，部分功能可能無法使用。' });
-            return;
-        }
-
-        try {
-            const app = initializeApp(firebaseConfig);
-            const firestoreDb = getFirestore(app);
-            const firebaseAuth = getAuth(app);
-            setDb(firestoreDb); setAuth(firebaseAuth);
-            const unsubscribe = onAuthStateChanged(firebaseAuth, (currentUser) => {
-                setUser(currentUser);
-                if (!currentUser) {
-                    signInAnonymously(firebaseAuth).catch(error => console.error("Anonymous sign-in failed:", error));
-                }
-            });
-            return () => unsubscribe();
-        } catch (error) {
-             console.error("Firebase initialization failed, running in offline mode.", error);
-             setFormSystem(initialFormSystem); setBookings(MOCK_INITIAL_BOOKINGS); setAdminAvailability(MOCK_INITIAL_ADMIN_AVAILABILITY); setLoading(false);
+        } else {
+            try {
+                const app = initializeApp(firebaseConfig);
+                const firestoreDb = getFirestore(app);
+                const firebaseAuth = getAuth(app);
+                setDb(firestoreDb); setAuth(firebaseAuth);
+                const unsubscribe = onAuthStateChanged(firebaseAuth, (currentUser) => {
+                    setUser(currentUser);
+                    if (!currentUser) {
+                        signInAnonymously(firebaseAuth).catch(error => console.error("Anonymous sign-in failed:", error));
+                    }
+                });
+                return () => unsubscribe();
+            } catch (error) {
+                console.error("Firebase initialization failed, running in offline mode.", error);
+                setFormSystem(initialFormSystem); setBookings(MOCK_INITIAL_BOOKINGS); setAdminAvailability(MOCK_INITIAL_ADMIN_AVAILABILITY); setLoading(false);
+            }
         }
     }, []);
 
