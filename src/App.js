@@ -1181,5 +1181,4 @@ export default function App() {
                 </ConfirmationModal>
             </div>
         </div>
-    );
-}
+    )
