@@ -11,10 +11,10 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc, getDoc, writeBatch, runTransaction, getDocs } from "firebase/firestore";
 
-// --- FIX: Import hooks from the single hooks file ---
+// Import hooks from the single hooks file
 import { useNotification, useModalState, useAuth, useBookingFlow, useFirebaseData } from './hooks'; 
 
-// --- FIX: Import all necessary functions and variables from utils.js ---
+// Import all necessary functions and variables from utils.js
 import { 
     getFirebaseConfig, appId, timeUtils, getEffectiveAvailability, isSlotAvailable, 
     getHourSummary, createFirebaseUtils, csvUtils, playClickSound, styles, 
@@ -886,22 +886,25 @@ export default function App() {
     const [db, setDb] = useState(null);
     const [auth, setAuth] = useState(null);
 
+    // --- FIX: Corrected useEffect to comply with Rules of Hooks ---
     useEffect(() => {
         const firebaseConfig = getFirebaseConfig();
-        if (!firebaseConfig) {
+        // If config is available, initialize Firebase.
+        // If not, db and auth will remain null, and the downstream hooks will handle it.
+        if (firebaseConfig) {
+            try {
+                const app = initializeApp(firebaseConfig);
+                setDb(getFirestore(app));
+                setAuth(getAuth(app));
+            } catch (error) {
+                console.error("Firebase initialization failed:", error);
+            }
+        } else {
             console.error("Firebase config not found. Running in offline/mock mode.");
-            return;
         }
-        try {
-            const app = initializeApp(firebaseConfig);
-            setDb(getFirestore(app));
-            setAuth(getAuth(app));
-        } catch (error) {
-            console.error("Firebase initialization failed:", error);
-        }
-    }, []);
+    }, []); // Empty dependency array ensures this runs only once.
 
-    // --- 使用自定義 Hooks 管理狀態 ---
+    // --- 使用自定義 Hooks 管理狀態 (These are now called unconditionally) ---
     const { notification, showNotification, clearNotification } = useNotification();
     const { isLoginModalOpen, setIsLoginModalOpen, confirmation, setConfirmation } = useModalState();
     const { user, isAdmin, handleLogin: authLogin, handleLogout: authLogout } = useAuth(auth);
@@ -918,7 +921,6 @@ export default function App() {
     // --- 建立依賴於 Hooks 狀態的工具 ---
     const fbUtils = useMemo(() => {
         if (!db) return null;
-        // 將 showNotification 傳入，而不是 setNotification
         return createFirebaseUtils(db, (message, type) => showNotification(message, type));
     }, [db, showNotification]);
 
